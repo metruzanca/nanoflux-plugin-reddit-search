@@ -55,6 +55,14 @@ page:
 The "include NSFW results" toggle adds reddit's `include_over_18=on`. A feed URL
 that already sets `include_over_18=on` always keeps it on.
 
+## Poll interval
+
+Search requests cost the same reddit account and host as every other reddit
+feed. The plugin declares a **one-hour minimum poll interval**; nanoflux uses the
+larger of that and its own configured minimum, so a search feed is polled at most
+hourly even if the global default is lowered. A rarer search benefits from a
+longer interval in the feed editor.
+
 ## Notes
 
 - A result's image is taken from the post's external link (e.g. `i.redd.it`),

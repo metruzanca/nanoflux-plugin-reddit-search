@@ -86,6 +86,10 @@ func (*Plugin) Meta() pluginapi.Meta {
 		UserAgent:  userAgent,
 		RawNetwork: true,
 		Summary:    "reddit search: watches a search query with your own logged-in session",
+		// A search-page scrape is even tighter than reddit's public .rss
+		// endpoints, and every search feed shares the same host. The host uses
+		// the larger of this and its configured minimum.
+		MinPollInterval: time.Hour,
 	}
 }
 
@@ -98,7 +102,7 @@ func (*Plugin) Match(u *url.URL, cap pluginapi.Capability) bool {
 		return false
 	}
 	switch cap {
-	case pluginapi.CapFetch, pluginapi.CapDiscover, pluginapi.CapURLPolicy, pluginapi.CapDocs:
+	case pluginapi.CapFetch, pluginapi.CapDiscover, pluginapi.CapURLPolicy, pluginapi.CapDocs, pluginapi.CapMinPollInterval:
 		return true
 	default:
 		return false

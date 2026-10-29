@@ -231,6 +231,15 @@ func TestMatch(t *testing.T) {
 	if !p.Match(must("https://old.reddit.com/r/golang/search"), pluginapi.CapDiscover) {
 		t.Error("subreddit search URL should match discover")
 	}
+	if !p.Match(must("https://old.reddit.com/search?q=x"), pluginapi.CapMinPollInterval) {
+		t.Error("search URL should claim the poll floor")
+	}
+	if p.Match(must("https://old.reddit.com/r/golang"), pluginapi.CapMinPollInterval) {
+		t.Error("a subreddit feed is not this plugin's feed")
+	}
+	if got := p.Meta().MinPollInterval; got != time.Hour {
+		t.Errorf("MinPollInterval = %v, want 1h", got)
+	}
 	if p.Match(must("https://old.reddit.com/r/golang"), pluginapi.CapFetch) {
 		t.Error("a subreddit feed is not a search URL")
 	}
