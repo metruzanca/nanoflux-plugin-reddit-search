@@ -1,8 +1,8 @@
 # nanoflux-plugin-reddit-search
 
-A [nanoflux](https://github.com/metruzanca/nanoflux)↗ external plugin that
-watches a reddit search as a feed, using a logged-in session to read
-`old.reddit.com`'s search results.
+A [nanoflux](https://github.com/metruzanca/nanoflux)↗ external plugin that reads
+subreddits, user profiles, and searches as feeds, using a logged-in session to
+read `old.reddit.com`'s pages.
 
 ## Install
 
@@ -21,13 +21,19 @@ Adjust `GOARCH` if your host is not `amd64` (use `arm64` for ARM).
 
 ## Usage
 
-Add a feed with a reddit search URL, e.g.:
+Add a feed with a reddit search URL, or turn on **fetch subreddit and user feeds
+(beta)** to read subreddit and user posts feeds as well:
 
 ```
 https://old.reddit.com/search?q=author%3ALeftArmOfExodia&sort=new&t=all
 https://old.reddit.com/r/golang/search?q=generics
+https://www.reddit.com/r/golang/.rss
+https://www.reddit.com/user/someone/submitted.rss
 ```
 
 Then set the account on nanoflux's admin plugins page: paste a `reddit_session`
 cookie (recommended), or a username and password. See the plugin's docs in the
-app for the supported search parameters.
+app for the supported search parameters and the beta feed behavior.
+
+The beta feed path falls back to `.rss` while Reddit still serves it, so an
+existing install keeps working while the session cookie is configured.

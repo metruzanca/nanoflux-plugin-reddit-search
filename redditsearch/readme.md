@@ -1,12 +1,34 @@
-# reddit search
+# reddit
 
-Watch a reddit search as a feed. Reddit's search pages have no RSS/Atom feed and
-require a logged-in session, so this plugin reads `old.reddit.com`'s search HTML
-with your account and turns the results into feed items.
+Read subreddits, user profiles, and searches as feeds. Reddit's pages have no
+RSS/Atom feed and require a logged-in session, so this plugin reads
+`old.reddit.com`'s HTML with your account and turns the results into feed items.
 
-This plugin is separate from nanoflux's built-in reddit support, which reads
-reddit's public `.rss` feeds. Watching an arbitrary search query is a login-gated
-scrape, so it lives in its own opt-in plugin.
+This plugin now handles subreddit and user posts feeds as a beta feature. The
+built-in reddit plugin is legacy: until its attribution and media support is
+moved here, keep it installed so items still render their `r/sub by u/user` line,
+card kind, and modal media.
+
+## Subreddit and user feeds (beta)
+
+Turn on **fetch subreddit and user feeds (beta)** in the admin plugins page and
+set a session below. Both are required: with the flag off or no session, feeds
+keep the old `.rss` behavior. The beta path reads each feed's `/new` listing:
+
+```
+https://www.reddit.com/r/golang/.rss
+https://www.reddit.com/user/someone/submitted.rss
+```
+
+The stored feed URL can stay in its old `.rss` shape. The plugin maps it to
+`old.reddit.com/r/<sub>/new/` or `old.reddit.com/user/<name>/submitted/`, so the
+feed keeps its identity and items across the switch.
+
+While Reddit still serves `.rss`, a feed falls back to it when the session is
+missing, expired, or refused. That keeps an existing install working while you
+set up the cookie. Once Reddit removes `.rss`, the session is required.
+
+Comment feeds (`/comments.rss`) are not migrated.
 
 ## Add a feed
 
@@ -40,8 +62,8 @@ For example, `subreddit:aww site:imgur.com dog`.
 
 ## Session
 
-Reddit's search is login-gated. Two ways to sign in, set on the admin plugins
-page:
+Reddit's search and listing pages are login-gated. Two ways to sign in, set on
+the admin plugins page:
 
 - **`reddit_session` cookie (recommended).** Log in to `old.reddit.com` in a
   browser, open DevTools → Application → Cookies, and paste the `reddit_session`
@@ -52,8 +74,9 @@ page:
 
 ### Include NSFW results
 
-The "include NSFW results" toggle adds reddit's `include_over_18=on`. A feed URL
-that already sets `include_over_18=on` always keeps it on.
+The "include NSFW results" toggle adds reddit's `include_over_18=on` and, for
+subreddit listings, sends the `over18=1` cookie. A feed URL that already sets
+`include_over_18=on` always keeps it on.
 
 ## Poll interval
 
@@ -68,9 +91,13 @@ longer interval in the feed editor.
 - A result's image is taken from the post's external link (e.g. `i.redd.it`),
   not reddit's signed preview thumbnail, so it does not expire; image posts show
   their image on the card and in the modal.
-- A result's post id (`t3_<id>`) is its identity, so a post found by search and
-  also present in a subscribed subreddit `.rss` feed is stored once with shared
-  read/favorite/list state, and renders reddit's usual `r/sub by u/user` line.
+- A post id (`t3_<id>`) is the item identity, so a post found by search, through
+  a subreddit feed, or through its author's feed is stored once with shared
+  read/favorite/list state. The beta feed path sets the same cross-feed key
+  directly.
 - Results are ordered newest-first, so the feed gains new matching posts as they
   appear. Avoid very broad queries that match a huge volume of posts; use
   "load older" to page further back.
+- In the beta feed path, link and gallery cards may render as text cards until
+  the legacy reddit plugin's media support moves here. Their modal content still
+  opens normally.

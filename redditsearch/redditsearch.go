@@ -1,12 +1,13 @@
-// Package redditsearch serves nanoflux's reddit search watcher as an
-// out-of-process plugin. Reddit's search pages have no RSS/Atom feed and are
-// login-gated, so this plugin reads old.reddit.com's search HTML with a
-// logged-in session and turns the results into a feed.
+// Package redditsearch serves nanoflux's reddit reader as an out-of-process
+// plugin. Reddit's search and listing pages have no RSS/Atom feed and are
+// login-gated, so this plugin reads old.reddit.com's HTML with a logged-in
+// session and turns the results into a feed.
 //
-// It is a separate plugin from nanoflux's built-in reddit support on purpose:
-// the built-in support reads reddit's public .rss feeds and stays within what
-// reddit's terms allow, while watching an arbitrary search query is a
-// different, login-gated scrape that a user opts into explicitly.
+// It also serves subreddit and user posts feeds as a beta path, gated by the
+// fetch_feeds setting, while the built-in reddit plugin remains installed for
+// its attribution, dedupe and media capabilities. Reddit retires the .rss
+// endpoints in November 2026, so the beta path reads the /new listing and keeps
+// the stored .rss URL as the feed identity.
 //
 // The plugin also owns the search feed's URL shape (canonicalization), so a
 // pasted URL is normalized to old.reddit.com with newest-first/all-time sorting
@@ -85,7 +86,7 @@ func (*Plugin) Meta() pluginapi.Meta {
 		APIVersion: pluginapi.APIVersion,
 		UserAgent:  userAgent,
 		RawNetwork: true,
-		Summary:    "reddit search: watches a search query with your own logged-in session",
+		Summary:    "reddit: reads subreddits, users, and searches with your own logged-in session",
 		// A search-page scrape is even tighter than reddit's public .rss
 		// endpoints, and every search feed shares the same host. The host uses
 		// the larger of this and its configured minimum.
@@ -96,17 +97,37 @@ func (*Plugin) Meta() pluginapi.Meta {
 // Docs returns this plugin's Markdown documentation.
 func (*Plugin) Docs() string { return readme }
 
-// Match handles discovery, fetch, URL rules and docs for reddit search URLs.
-func (*Plugin) Match(u *url.URL, cap pluginapi.Capability) bool {
-	if u == nil || !isRedditHost(u.Hostname()) || !isSearchURL(u) {
+// Match handles discovery, fetch, URL rules and docs for reddit search URLs,
+// plus the beta fetch path for subreddit and user posts feeds. The feed path is
+// behind the fetch_feeds setting so an existing install keeps the generic .rss
+// fetch until the operator opts in.
+func (p *Plugin) Match(u *url.URL, cap pluginapi.Capability) bool {
+	if u == nil || !isRedditHost(u.Hostname()) {
 		return false
 	}
-	switch cap {
-	case pluginapi.CapFetch, pluginapi.CapDiscover, pluginapi.CapURLPolicy, pluginapi.CapDocs, pluginapi.CapMinPollInterval:
-		return true
-	default:
+	if isSearchURL(u) {
+		switch cap {
+		case pluginapi.CapFetch, pluginapi.CapDiscover, pluginapi.CapURLPolicy, pluginapi.CapDocs, pluginapi.CapMinPollInterval:
+			return true
+		default:
+			return false
+		}
+	}
+	if cap != pluginapi.CapFetch || !p.feedFetchReady() {
 		return false
 	}
+	_, ok := listingTarget(u.String())
+	return ok
+}
+
+// feedFetchReady reports whether the beta subreddit/user feed fetch can run:
+// the operator turned it on and a session is configured. With either missing,
+// the feed stays on the generic .rss fetch, so turning the flag on without a
+// cookie does not change existing behavior.
+func (p *Plugin) feedFetchReady() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.cfg.FetchFeeds && p.cfg.Complete()
 }
 
 // Discover offers the canonical search URL as the feed. The candidate is
@@ -139,13 +160,23 @@ func (*Plugin) CanonicalizeFeedURL(raw string) string {
 // FeedToken is unsupported: a search feed is not a subreddit/user token.
 func (*Plugin) FeedToken(string) string { return "" }
 
-// Fetch scrapes one page of search results into feed items, newest first. It
-// returns the next-page URL for "load older" when reddit offers one.
+// Fetch dispatches on the URL shape: a search page is scraped as before, and a
+// subreddit/user posts feed uses the beta /new listing scraper with a temporary
+// .rss fallback.
 func (p *Plugin) Fetch(ctx context.Context, req pluginapi.FetchRequest, h pluginapi.Host) (pluginapi.Result, error) {
-	canonical := canonicalSearchURL(req.URL)
-	if canonical == "" {
-		return pluginapi.Result{}, errors.New("not a reddit search URL")
+	if canonical := canonicalSearchURL(req.URL); canonical != "" {
+		return p.fetchSearch(ctx, canonical, h)
 	}
+	target, ok := listingTarget(req.URL)
+	if !ok {
+		return pluginapi.Result{}, errors.New("not a reddit search or feed URL")
+	}
+	return p.fetchListing(ctx, target, h)
+}
+
+// fetchSearch scrapes one page of search results into feed items, newest first.
+// It returns the next-page URL for "load older" when reddit offers one.
+func (p *Plugin) fetchSearch(ctx context.Context, canonical string, h pluginapi.Host) (pluginapi.Result, error) {
 	cfg := p.loadConfig()
 	if !cfg.Complete() {
 		return pluginapi.Result{}, errors.New("reddit search is not configured: set a reddit_session cookie, or a username and password, in the admin plugins page")
@@ -261,14 +292,19 @@ func (p *Plugin) login(ctx context.Context, cfg Config) (string, error) {
 	return strings.Join(parts, "; "), nil
 }
 
-// get performs one host-mediated search request. A rate-limited host comes back
-// as a typed RateLimit so the feed is parked; a login wall clears the cached
-// session so the next poll logs in again.
+// get performs one host-mediated request with the configured session cookie.
 func (p *Plugin) get(ctx context.Context, endpoint string, h pluginapi.Host) ([]byte, error) {
 	cookie, err := p.cookie(ctx)
 	if err != nil {
 		return nil, err
 	}
+	return p.getWith(ctx, endpoint, cookie, h)
+}
+
+// getWith performs one host-mediated request with an explicit Cookie header. A
+// rate-limited host comes back as a typed RateLimit so the feed is parked; a
+// login wall clears the cached session so the next poll logs in again.
+func (p *Plugin) getWith(ctx context.Context, endpoint, cookie string, h pluginapi.Host) ([]byte, error) {
 	resp, err := h.Do(ctx, pluginapi.HTTPRequest{
 		Method: http.MethodGet,
 		URL:    endpoint,
@@ -701,11 +737,16 @@ func nextPageURL(body []byte) string {
 	return u.String()
 }
 
-// isLoginWall reports whether a page is reddit's login form rather than a
-// result listing (a missing or expired session).
+// isLoginWall reports whether a page is reddit's login form or a block page
+// rather than a result listing (a missing or expired session, or a refused
+// request).
 func isLoginWall(body []byte) bool {
 	s := strings.ToLower(string(body))
-	return strings.Contains(s, "login-form") || strings.Contains(s, "you must be logged in") || strings.Contains(s, "id=\"login\"")
+	return strings.Contains(s, "login-form") ||
+		strings.Contains(s, "you must be logged in") ||
+		strings.Contains(s, "id=\"login\"") ||
+		strings.Contains(s, "<title>blocked</title>") ||
+		strings.Contains(s, "whoa there, pardner")
 }
 
 // --- small helpers ---

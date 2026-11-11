@@ -1,13 +1,12 @@
-// Command nanoflux-plugin-reddit-search serves nanoflux's reddit search watcher
-// over gRPC so nanoflux can load it as an external plugin. Reddit's search
-// pages have no feed and require a logged-in session, so this plugin logs in
-// with the configured account (or a pasted session cookie) and scrapes
-// old.reddit.com search results into a feed.
+// Command nanoflux-plugin-reddit-search serves nanoflux's reddit reader over
+// gRPC so nanoflux can load it as an external plugin. Reddit's pages have no
+// feed and require a logged-in session, so this plugin logs in with the
+// configured account (or a pasted session cookie) and scrapes old.reddit.com
+// search results and, as a beta path, subreddit and user /new listings.
 //
-// It is deliberately separate from nanoflux's built-in reddit handling, which
-// reads reddit's public .rss feeds and stays within what reddit's terms allow:
-// watching arbitrary search queries is a different, login-gated surface, so it
-// lives in its own opt-in plugin.
+// The built-in reddit plugin remains installed during the beta for its
+// attribution, dedupe and media capabilities. The beta feed path is opt-in
+// because it replaces the .rss endpoints Reddit is retiring.
 //
 // Build it and drop the binary into the host's plugins directory
 // (NF_PLUGINS_DIR, ./plugins by default):

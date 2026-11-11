@@ -23,6 +23,11 @@ type Config struct {
 	Session string
 	// IncludeNSFW requests NSFW results (reddit's include_over_18=on).
 	IncludeNSFW bool
+	// FetchFeeds enables the beta path that reads subreddit and user posts
+	// feeds from reddit's /new listing instead of the .rss endpoints Reddit is
+	// retiring. It is off by default so an existing install keeps the generic
+	// .rss fetch until the operator opts in from the admin plugins page.
+	FetchFeeds bool
 }
 
 // Complete reports whether any usable credential is present.
@@ -63,6 +68,13 @@ func (*Plugin) Settings() []pluginapi.SettingField {
 			Placeholder: "include NSFW results",
 			Help:        "Adds reddit's include_over_18=on. A feed URL that already sets include_over_18 always keeps it on.",
 		},
+		{
+			Name:        "fetch_feeds",
+			Label:       "fetch subreddit and user feeds (beta)",
+			Kind:        "bool",
+			Placeholder: "fetch subreddit and user feeds (beta)",
+			Help:        "Reads subreddit and user posts from reddit's /new listing instead of the .rss endpoints Reddit is retiring. Requires the session above: with it off or unset, feeds keep the current .rss behavior.",
+		},
 	}
 }
 
@@ -76,6 +88,7 @@ func (p *Plugin) Configure(values map[string]string) {
 		Password:    strings.TrimSpace(values["password"]),
 		Session:     strings.TrimSpace(values["session"]),
 		IncludeNSFW: settingBool(values["include_nsfw"]),
+		FetchFeeds:  settingBool(values["fetch_feeds"]),
 	}
 	p.session = ""
 }
