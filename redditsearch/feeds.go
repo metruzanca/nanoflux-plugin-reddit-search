@@ -403,6 +403,14 @@ func listingItem(n *xhtml.Node) (pluginapi.Item, bool) {
 		return it, true
 	}
 
+	// A non-self post can carry reddit's preview thumbnail for its destination.
+	// Keep it as the row image so a link, gallery or video card shows a preview
+	// without opening the item. Self posts have no destination preview.
+	isSelf := strings.EqualFold(attrValue(n, "data-type"), "self")
+	if !isSelf && dest != "" && dest != link {
+		it.ImageURL = listingThumbnail(n)
+	}
+
 	var parts []string
 	if body != "" {
 		parts = append(parts, body)
@@ -412,6 +420,41 @@ func listingItem(n *xhtml.Node) (pluginapi.Item, bool) {
 	}
 	it.Summary = strings.Join(parts, "\n")
 	return it, true
+}
+
+// listingThumbnail returns reddit's preview image for a listing post, or "".
+// It only accepts reddit's preview hosts: the listing also carries generic
+// icons and default thumbnails that should not be shown as content previews.
+func listingThumbnail(n *xhtml.Node) string {
+	var raw string
+	if a := firstDescendant(n, func(x *xhtml.Node) bool {
+		return x.Type == xhtml.ElementNode && x.Data == "a" && hasClass(x, "thumbnail")
+	}); a != nil {
+		if img := firstDescendant(a, func(x *xhtml.Node) bool {
+			return x.Type == xhtml.ElementNode && x.Data == "img"
+		}); img != nil {
+			raw = attrValue(img, "src")
+		}
+	}
+	if raw == "" {
+		raw = attrValue(n, "data-thumbnail")
+	}
+	raw = strings.TrimSpace(htmlstd.UnescapeString(raw))
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "//") {
+		raw = "https:" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return ""
+	}
+	switch strings.ToLower(u.Hostname()) {
+	case "external-preview.redd.it", "preview.redd.it":
+		return u.String()
+	}
+	return ""
 }
 
 // listingPublishedAt reads a post's time from the listing tagline's <time>

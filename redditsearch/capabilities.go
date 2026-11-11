@@ -158,19 +158,10 @@ func linkDedupeKey(dest, author string) string {
 	return strings.ToLower(author) + "|" + u.String()
 }
 
-// itemKind classifies a reddit item from its stored thumbnail, summary and
-// destination. The summary path covers feeds such as the listing scrape that
-// carry no reddit preview thumbnail.
+// itemKind classifies a reddit item from its summary destination first, then
+// its stored thumbnail. A preview thumbnail alone can belong to a link, a
+// gallery or a video, so the destination is the stronger signal.
 func itemKind(it pluginapi.Item) pluginapi.ItemKind {
-	if isLinkThumb(it.ImageURL) {
-		return pluginapi.KindLink
-	}
-	if isGalleryThumb(it.ImageURL) {
-		return pluginapi.KindGallery
-	}
-	if isImagePost(it.Summary, it.ImageURL, it.Title) {
-		return pluginapi.KindImage
-	}
 	if dest, ok := summaryDestination(it.Summary); ok {
 		if _, ok := galleryID(dest); ok {
 			return pluginapi.KindGallery
@@ -179,9 +170,21 @@ func itemKind(it pluginapi.Item) pluginapi.ItemKind {
 			return pluginapi.KindImage
 		}
 		host := hostOf(dest)
+		if host == "v.redd.it" {
+			return pluginapi.KindVideo
+		}
 		if !isRedditHost(host) && !isRedditMediaHost(host) {
 			return pluginapi.KindLink
 		}
+	}
+	if isLinkThumb(it.ImageURL) {
+		return pluginapi.KindLink
+	}
+	if isGalleryThumb(it.ImageURL) {
+		return pluginapi.KindGallery
+	}
+	if isImagePost(it.Summary, it.ImageURL, it.Title) {
+		return pluginapi.KindImage
 	}
 	if it.ImageURL != "" && isImageURL(it.ImageURL) {
 		return pluginapi.KindImage

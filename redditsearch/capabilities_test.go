@@ -172,6 +172,29 @@ func TestDecorate(t *testing.T) {
 	}
 }
 
+func TestItemKind(t *testing.T) {
+	cases := []struct {
+		name string
+		it   pluginapi.Item
+		want pluginapi.ItemKind
+	}{
+		{"external link", pluginapi.Item{Summary: `<a href="https://example.com/x">[link]</a>`, ImageURL: "https://external-preview.redd.it/x.jpeg"}, pluginapi.KindLink},
+		{"gallery", pluginapi.Item{Summary: `<a href="https://www.reddit.com/gallery/abc">[link]</a>`, ImageURL: "https://preview.redd.it/x.jpeg?crop=1:1,smart"}, pluginapi.KindGallery},
+		{"video", pluginapi.Item{Summary: `<a href="https://v.redd.it/abc">[link]</a>`, ImageURL: "https://preview.redd.it/x.jpeg?crop=1:1,smart"}, pluginapi.KindVideo},
+		{"image", pluginapi.Item{Title: "Pic", ImageURL: "https://i.redd.it/x.jpeg", Summary: `<a href="https://i.redd.it/x.jpeg"><img src="https://i.redd.it/x.jpeg" alt=""></a>`}, pluginapi.KindImage},
+		{"self", pluginapi.Item{Summary: `<p>body</p><a href="https://www.reddit.com/r/s/comments/1a/t/">[link]</a>`}, pluginapi.KindText},
+		{"legacy link thumbnail", pluginapi.Item{ImageURL: "https://external-preview.redd.it/x.jpeg"}, pluginapi.KindLink},
+		{"legacy gallery thumbnail", pluginapi.Item{ImageURL: "https://preview.redd.it/x.jpeg?crop=1:1,smart"}, pluginapi.KindGallery},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := itemKind(tc.it); got != tc.want {
+				t.Fatalf("itemKind = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRenderImage(t *testing.T) {
 	p := &Plugin{}
 	m, err := p.Render(context.Background(), pluginapi.RenderRequest{

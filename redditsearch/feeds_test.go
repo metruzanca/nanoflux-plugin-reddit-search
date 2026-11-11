@@ -14,7 +14,8 @@ import (
 // div.thing with data-* attributes, a title anchor, a tagline time, and an
 // optional usertext-body for self posts.
 const listingFixture = `<!doctype html><html><body>
-<div class=" thing id-t3_abc123 odd link " data-fullname="t3_abc123" data-author="alice" data-subreddit="golang" data-permalink="/r/golang/comments/abc123/some_title/" data-url="https://example.com/article" data-timestamp="1700000000">
+<div class=" thing id-t3_abc123 odd link " data-fullname="t3_abc123" data-type="link" data-author="alice" data-subreddit="golang" data-permalink="/r/golang/comments/abc123/some_title/" data-url="https://example.com/article" data-timestamp="1700000000">
+  <a class="thumbnail may-blank" href="https://example.com/article"><img src="//external-preview.redd.it/example123.jpeg?width=140&amp;height=140&amp;crop=1:1,smart&amp;auto=webp&amp;s=sig" width="70" height="70" alt=""></a>
   <div class="entry unvoted">
     <div class="top-matter">
       <p class="title"><a class="title may-blank" href="https://example.com/article">Some &amp; Title</a> <span class="domain">(<span>example.com</span>)</span></p>
@@ -22,7 +23,7 @@ const listingFixture = `<!doctype html><html><body>
     </div>
   </div>
 </div>
-<div class=" thing id-t3_self1 even link self" data-fullname="t3_self1" data-author="bob" data-subreddit="lounge" data-permalink="/r/lounge/comments/self1/hello/" data-url="https://www.reddit.com/r/lounge/comments/self1/hello/" data-timestamp="1700000001000">
+<div class=" thing id-t3_self1 even link self" data-fullname="t3_self1" data-type="self" data-author="bob" data-subreddit="lounge" data-permalink="/r/lounge/comments/self1/hello/" data-url="https://www.reddit.com/r/lounge/comments/self1/hello/" data-timestamp="1700000001000">
   <div class="entry">
     <p class="title"><a class="title" href="https://www.reddit.com/r/lounge/comments/self1/hello/">Hello</a></p>
     <div class="expando"><div class="usertext-body may-blank-within md-container"><div class="md"><p>Self text</p></div></div></div>
@@ -98,6 +99,9 @@ func TestParseListing(t *testing.T) {
 	if !strings.Contains(first.Summary, `href="https://example.com/article"`) || !strings.Contains(first.Summary, "[link]") {
 		t.Errorf("link summary = %q", first.Summary)
 	}
+	if first.ImageURL != "https://external-preview.redd.it/example123.jpeg?width=140&height=140&crop=1:1,smart&auto=webp&s=sig" {
+		t.Errorf("link ImageURL = %q", first.ImageURL)
+	}
 	if len(first.Categories) != 2 || first.Categories[0] != "r/golang" || first.Categories[1] != "u/alice" {
 		t.Errorf("Categories = %v", first.Categories)
 	}
@@ -109,6 +113,9 @@ func TestParseListing(t *testing.T) {
 	if !strings.Contains(self.Summary, "Self text") || !strings.Contains(self.Summary, "[link]") {
 		t.Errorf("self summary = %q", self.Summary)
 	}
+	if self.ImageURL != "" {
+		t.Errorf("self should not use a listing thumbnail: %q", self.ImageURL)
+	}
 	if self.Categories[0] != "r/lounge" || self.Categories[1] != "u/bob" {
 		t.Errorf("self Categories = %v", self.Categories)
 	}
@@ -119,6 +126,34 @@ func TestParseListing(t *testing.T) {
 	}
 	if !strings.Contains(img.Summary, `<img src="https://i.redd.it/img1.jpeg"`) {
 		t.Errorf("image summary = %q", img.Summary)
+	}
+}
+
+func TestListingThumbnailPreviewHost(t *testing.T) {
+	body := `<div class="thing" data-fullname="t3_v1" data-type="link" data-author="a" data-subreddit="s" data-permalink="/r/s/comments/v1/t/" data-url="https://v.redd.it/abc">
+  <a class="thumbnail"><img src="//preview.redd.it/vid1.jpeg?width=140&amp;height=140&amp;crop=1:1,smart&amp;s=sig"></a>
+  <p class="title"><a class="title">V</a></p>
+</div>`
+	items := parseListing([]byte(body))
+	if len(items) != 1 {
+		t.Fatalf("items = %d", len(items))
+	}
+	if items[0].ImageURL != "https://preview.redd.it/vid1.jpeg?width=140&height=140&crop=1:1,smart&s=sig" {
+		t.Fatalf("ImageURL = %q", items[0].ImageURL)
+	}
+}
+
+func TestListingThumbnailRejectsDefaultIcon(t *testing.T) {
+	body := `<div class="thing" data-fullname="t3_d1" data-type="link" data-author="a" data-subreddit="s" data-permalink="/r/s/comments/d1/t/" data-url="https://example.com/article">
+  <a class="thumbnail default"><img src="https://www.redditstatic.com/icon.png"></a>
+  <p class="title"><a class="title">T</a></p>
+</div>`
+	items := parseListing([]byte(body))
+	if len(items) != 1 {
+		t.Fatalf("items = %d", len(items))
+	}
+	if items[0].ImageURL != "" {
+		t.Fatalf("default icon should not become the item image: %q", items[0].ImageURL)
 	}
 }
 
