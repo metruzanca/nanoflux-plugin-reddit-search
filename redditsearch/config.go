@@ -34,8 +34,10 @@ func (c Config) Complete() bool {
 }
 
 // Settings declares the account and options the plugin needs. The secret fields
-// are write-only so the app never renders the stored value back.
-func (*Plugin) Settings() []pluginapi.SettingField {
+// are write-only so the app never renders the stored value back. The session
+// field's help carries the signed-in account name when it is known.
+func (p *Plugin) Settings() []pluginapi.SettingField {
+	p.maybeFetchAccount()
 	return []pluginapi.SettingField{
 		{
 			Name:        "username",
@@ -54,7 +56,7 @@ func (*Plugin) Settings() []pluginapi.SettingField {
 			Name:  "session",
 			Label: "reddit_session cookie",
 			Kind:  "password",
-			Help:  "Recommended. From a logged-in old.reddit.com session: DevTools → Application → Cookies → reddit_session. Skips login and is more reliable than a password.",
+			Help:  p.sessionHelp(),
 		},
 		{
 			Name:        "include_nsfw",
@@ -67,17 +69,22 @@ func (*Plugin) Settings() []pluginapi.SettingField {
 }
 
 // Configure caches the account the host pushed. It drops any cached login
-// session, since the credentials may have changed.
+// session and account name, since the credentials may have changed, then starts
+// a background lookup of the account the new session belongs to.
 func (p *Plugin) Configure(values map[string]string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.cfg = Config{
+	cfg := Config{
 		Username:    strings.TrimSpace(values["username"]),
 		Password:    strings.TrimSpace(values["password"]),
 		Session:     strings.TrimSpace(values["session"]),
 		IncludeNSFW: settingBool(values["include_nsfw"]),
 	}
+	p.mu.Lock()
+	p.cfg = cfg
 	p.session = ""
+	p.account = ""
+	p.accountFetching = false
+	p.mu.Unlock()
+	p.maybeFetchAccount()
 }
 
 // settingBool reads a bool setting stored as "1"/"0" (older values may be

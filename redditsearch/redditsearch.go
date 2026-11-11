@@ -64,10 +64,12 @@ var hosts = []string{"reddit.com", "www.reddit.com", "old.reddit.com", "np.reddi
 // cached logged-in session; nanoflux keeps one instance alive for the life of
 // the subprocess.
 type Plugin struct {
-	mu      sync.Mutex
-	cfg     Config
-	session string              // cached cookie header from a successful login
-	gallery map[string]galEntry // post id -> full-res gallery images
+	mu              sync.Mutex
+	cfg             Config
+	session         string              // cached cookie header from a successful login
+	account         string              // reddit account the configured session belongs to
+	accountFetching bool                // an account lookup is in flight
+	gallery         map[string]galEntry // post id -> full-res gallery images
 }
 
 var (
