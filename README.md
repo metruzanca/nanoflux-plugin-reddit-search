@@ -2,7 +2,9 @@
 
 A [nanoflux](https://github.com/metruzanca/nanoflux)↗ external plugin that reads
 subreddits, user profiles, and searches as feeds, using a logged-in session to
-read `old.reddit.com`'s pages.
+read `old.reddit.com`'s pages. It also carries reddit attribution, cross-feed
+identity, card kinds, and modal media handling. The legacy `reddit` plugin stays
+installed as a fallback and keeps serving those while present.
 
 ## Install
 

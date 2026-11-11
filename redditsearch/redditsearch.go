@@ -66,12 +66,17 @@ var hosts = []string{"reddit.com", "www.reddit.com", "old.reddit.com", "np.reddi
 type Plugin struct {
 	mu      sync.Mutex
 	cfg     Config
-	session string // cached cookie header from a successful login
+	session string              // cached cookie header from a successful login
+	gallery map[string]galEntry // post id -> full-res gallery images
 }
 
 var (
 	_ pluginapi.Fetcher      = (*Plugin)(nil)
+	_ pluginapi.Renderer     = (*Plugin)(nil)
+	_ pluginapi.SharedKeyer  = (*Plugin)(nil)
+	_ pluginapi.Categorizer  = (*Plugin)(nil)
 	_ pluginapi.URLPolicy    = (*Plugin)(nil)
+	_ pluginapi.Decoration   = (*Plugin)(nil)
 	_ pluginapi.Docser       = (*Plugin)(nil)
 	_ pluginapi.Configurable = (*Plugin)(nil)
 )
@@ -102,22 +107,37 @@ func (*Plugin) Docs() string { return readme }
 // behind the fetch_feeds setting so an existing install keeps the generic .rss
 // fetch until the operator opts in.
 func (p *Plugin) Match(u *url.URL, cap pluginapi.Capability) bool {
-	if u == nil || !isRedditHost(u.Hostname()) {
+	if u == nil {
 		return false
 	}
-	if isSearchURL(u) {
-		switch cap {
-		case pluginapi.CapFetch, pluginapi.CapDiscover, pluginapi.CapURLPolicy, pluginapi.CapDocs, pluginapi.CapMinPollInterval:
+	if cap == pluginapi.CapBypassProxy {
+		return isRedditMediaHost(u.Hostname())
+	}
+	if !isRedditHost(u.Hostname()) {
+		return false
+	}
+	switch cap {
+	case pluginapi.CapRender, pluginapi.CapDocs, pluginapi.CapSharedKey, pluginapi.CapCategorize,
+		pluginapi.CapDecorate, pluginapi.CapMinPollInterval:
+		return true
+	case pluginapi.CapDiscover, pluginapi.CapURLPolicy:
+		if canonicalSearchURL(u.String()) != "" {
 			return true
-		default:
+		}
+		_, ok := listingTarget(u.String())
+		return ok
+	case pluginapi.CapFetch:
+		if canonicalSearchURL(u.String()) != "" {
+			return true
+		}
+		if !p.feedFetchReady() {
 			return false
 		}
-	}
-	if cap != pluginapi.CapFetch || !p.feedFetchReady() {
+		_, ok := listingTarget(u.String())
+		return ok
+	default:
 		return false
 	}
-	_, ok := listingTarget(u.String())
-	return ok
 }
 
 // feedFetchReady reports whether the beta subreddit/user feed fetch can run:
@@ -130,35 +150,66 @@ func (p *Plugin) feedFetchReady() bool {
 	return p.cfg.FetchFeeds && p.cfg.Complete()
 }
 
-// Discover offers the canonical search URL as the feed. The candidate is
-// Derived: the feed URL follows from the page URL alone, so the host never
-// fetches the search page to validate it.
+// Discover offers a derived feed for a reddit search, subreddit or user page.
+// The candidate is Derived: the feed URL follows from the page URL alone, so
+// the host never fetches the page to validate it.
 func (p *Plugin) Discover(_ context.Context, pageURL string, _ pluginapi.Host) ([]pluginapi.Candidate, error) {
-	canonical := canonicalSearchURL(pageURL)
-	if canonical == "" {
+	if canonical := canonicalSearchURL(pageURL); canonical != "" {
+		return []pluginapi.Candidate{{
+			FeedURL: canonical,
+			Title:   searchTitle(canonical),
+			HomeURL: canonical,
+			Derived: true,
+		}}, nil
+	}
+	target, ok := listingTarget(pageURL)
+	if !ok || !p.feedFetchReady() {
 		return nil, pluginapi.ErrUnsupportedCapability
 	}
+	author := target.name
+	if target.kind == "r" {
+		author = "r/" + target.name
+	}
 	return []pluginapi.Candidate{{
-		FeedURL: canonical,
-		Title:   searchTitle(canonical),
-		HomeURL: canonical,
-		Derived: true,
+		FeedURL:    target.scrapeURL,
+		Title:      target.title,
+		HomeURL:    target.homeURL,
+		AuthorName: author,
+		Derived:    true,
 	}}, nil
 }
 
 // CanonicalizeFeedURL normalizes a search URL to the shape the plugin fetches:
 // the old.reddit.com host, sort=new and t=all, and a /r/{sub}/search path
-// folded into a subreddit: query term. It is idempotent and returns the input
-// unchanged for a non-search URL.
-func (*Plugin) CanonicalizeFeedURL(raw string) string {
+// folded into a subreddit: query term. A subreddit or user posts URL is
+// normalized to its /new listing. It is idempotent and returns other URLs
+// unchanged.
+func (p *Plugin) CanonicalizeFeedURL(raw string) string {
 	if c := canonicalSearchURL(raw); c != "" {
 		return c
+	}
+	if target, ok := listingTarget(raw); ok && p.feedFetchReady() {
+		return target.scrapeURL
 	}
 	return raw
 }
 
-// FeedToken is unsupported: a search feed is not a subreddit/user token.
-func (*Plugin) FeedToken(string) string { return "" }
+// FeedToken returns the "r/<sub>" or "u/<name>" token a reddit feed URL
+// represents, so the host can match an item's categories back to a subscribed
+// feed. A search feed has no token.
+func (*Plugin) FeedToken(feedURL string) string {
+	if canonicalSearchURL(feedURL) != "" {
+		return ""
+	}
+	target, ok := listingTarget(feedURL)
+	if !ok {
+		return ""
+	}
+	if target.kind == "r" {
+		return "r/" + strings.ToLower(target.name)
+	}
+	return "u/" + strings.ToLower(target.name)
+}
 
 // Fetch dispatches on the URL shape: a search page is scraped as before, and a
 // subreddit/user posts feed uses the beta /new listing scraper with a temporary

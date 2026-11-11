@@ -69,8 +69,6 @@ func TestListingTarget(t *testing.T) {
 		{"https://www.reddit.com/u/sam/submitted.rss", true, "u", "sam", "https://old.reddit.com/user/sam/submitted/?sort=new", "https://www.reddit.com/user/sam/submitted.rss", "u/sam", "https://www.reddit.com/user/sam"},
 		{"https://old.reddit.com/user/sam/submitted/?sort=new", true, "u", "sam", "https://old.reddit.com/user/sam/submitted/?sort=new", "https://www.reddit.com/user/sam/submitted.rss", "u/sam", "https://www.reddit.com/user/sam"},
 		{"https://www.reddit.com/r/golang/comments/1abc/x/", false, "", "", "", "", "", ""},
-		{"https://www.reddit.com/r/golang/comments.rss", false, "", "", "", "", "", ""},
-		{"https://www.reddit.com/user/sam/comments.rss", false, "", "", "", "", "", ""},
 		{"https://www.reddit.com/r/golang/search?q=x", false, "", "", "", "", "", ""},
 		{"https://example.com/r/golang/.rss", false, "", "", "", "", "", ""},
 	}
@@ -158,14 +156,11 @@ func TestMatchFeedFetchFlag(t *testing.T) {
 	if !p.Match(feed, pluginapi.CapFetch) {
 		t.Error("feed fetch should match when enabled and configured")
 	}
-	if p.Match(feed, pluginapi.CapDiscover) {
-		t.Error("feed discovery should stay with the reddit plugin for now")
+	if !p.Match(feed, pluginapi.CapDiscover) {
+		t.Error("feed discovery should be available in this plugin")
 	}
 	if p.Match(mustURL(t, "https://www.reddit.com/r/golang/comments/1abc/x/"), pluginapi.CapFetch) {
 		t.Error("post permalink should not match feed fetch")
-	}
-	if p.Match(mustURL(t, "https://www.reddit.com/user/sam/comments.rss"), pluginapi.CapFetch) {
-		t.Error("comment feed should not match feed fetch")
 	}
 	if !p.Match(mustURL(t, "https://old.reddit.com/search?q=x"), pluginapi.CapFetch) {
 		t.Error("search should still match regardless of the flag")

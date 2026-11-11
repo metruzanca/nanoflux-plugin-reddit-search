@@ -31,8 +31,8 @@ type feedTarget struct {
 
 // listingTarget resolves a reddit subreddit or user posts URL to a feedTarget.
 // It accepts the legacy .rss shapes (existing subscriptions) and the listing
-// shapes, but deliberately rejects search URLs and comment feeds: search is
-// handled by the search path, and comments are out of scope.
+// shapes, but deliberately rejects search URLs and non-post paths: search is
+// handled by the search path, and only posts are in scope.
 func listingTarget(raw string) (feedTarget, bool) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Host == "" || !isRedditHost(u.Hostname()) || isSearchURL(u) {
@@ -92,7 +92,7 @@ func listingTarget(raw string) (feedTarget, bool) {
 
 // subredditRestOK reports whether the segments after /r/{sub} are a posts
 // listing shape. Empty, .rss, new and new/.rss are accepted. Anything else
-// (comments, search, wiki, an explicit post permalink) is not a feed.
+// (search, wiki, an explicit post permalink) is not a feed.
 func subredditRestOK(rest []string) bool {
 	rest = trimEmpty(rest)
 	switch len(rest) {
@@ -117,7 +117,7 @@ func subredditRestOK(rest []string) bool {
 
 // userRestOK reports whether the segments after /user/{name} are a submitted
 // posts listing. Empty, .rss, submitted, submitted.rss and submitted/new are
-// accepted. Comment and other profile tabs are rejected.
+// accepted. Other profile tabs are rejected.
 func userRestOK(rest []string) bool {
 	rest = trimEmpty(rest)
 	switch len(rest) {

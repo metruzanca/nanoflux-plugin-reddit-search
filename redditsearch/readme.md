@@ -4,10 +4,14 @@ Read subreddits, user profiles, and searches as feeds. Reddit's pages have no
 RSS/Atom feed and require a logged-in session, so this plugin reads
 `old.reddit.com`'s HTML with your account and turns the results into feed items.
 
-This plugin now handles subreddit and user posts feeds as a beta feature. The
-built-in reddit plugin is legacy: until its attribution and media support is
-moved here, keep it installed so items still render their `r/sub by u/user` line,
-card kind, and modal media.
+This plugin now handles subreddit and user posts feeds as a beta feature. It also
+carries the reddit-specific attribution, cross-feed identity, card kinds, and
+modal media handling.
+
+The built-in reddit plugin is legacy and remains installed as a fallback. Because
+plugins are matched in load order and the legacy plugin loads first, it keeps
+serving attribution and media while present. This plugin's own implementations
+take over when the legacy plugin is removed.
 
 ## Subreddit and user feeds (beta)
 
@@ -27,8 +31,6 @@ feed keeps its identity and items across the switch.
 While Reddit still serves `.rss`, a feed falls back to it when the session is
 missing, expired, or refused. That keeps an existing install working while you
 set up the cookie. Once Reddit removes `.rss`, the session is required.
-
-Comment feeds (`/comments.rss`) are not migrated.
 
 ## Add a feed
 
@@ -98,6 +100,7 @@ longer interval in the feed editor.
 - Results are ordered newest-first, so the feed gains new matching posts as they
   appear. Avoid very broad queries that match a huge volume of posts; use
   "load older" to page further back.
-- In the beta feed path, link and gallery cards may render as text cards until
-  the legacy reddit plugin's media support moves here. Their modal content still
-  opens normally.
+- While the legacy reddit plugin is installed, it still classifies cards from
+  reddit preview thumbnails, so link and gallery cards from the beta listing path
+  may render as text cards. This plugin classifies them from the destination once
+  the legacy plugin is removed. Their modal content still opens normally.
