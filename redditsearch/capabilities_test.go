@@ -10,7 +10,6 @@ import (
 
 func TestDiscoverFeed(t *testing.T) {
 	p := &Plugin{}
-	p.Configure(map[string]string{"session": "abc", "fetch_feeds": "1"})
 	cases := []struct {
 		page       string
 		feedURL    string
@@ -52,7 +51,6 @@ func TestDiscoverFeed(t *testing.T) {
 
 func TestCanonicalizeFeedURL(t *testing.T) {
 	p := &Plugin{}
-	p.Configure(map[string]string{"session": "abc", "fetch_feeds": "1"})
 	cases := []struct{ in, want string }{
 		{"https://www.reddit.com/r/golang/.rss", "https://old.reddit.com/r/golang/new/"},
 		{"https://www.reddit.com/r/golang.rss", "https://old.reddit.com/r/golang/new/"},

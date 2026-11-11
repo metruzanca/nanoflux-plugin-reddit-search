@@ -4,33 +4,25 @@ Read subreddits, user profiles, and searches as feeds. Reddit's pages have no
 RSS/Atom feed and require a logged-in session, so this plugin reads
 `old.reddit.com`'s HTML with your account and turns the results into feed items.
 
-This plugin now handles subreddit and user posts feeds as a beta feature. It also
-carries the reddit-specific attribution, cross-feed identity, card kinds, and
-modal media handling.
+The plugin is self-contained: it owns fetching, URL policy, discovery,
+cross-feed identity, attribution, card kinds, and modal media handling. It
+replaces the legacy reddit plugin.
 
-The built-in reddit plugin is legacy and remains installed as a fallback. Because
-plugins are matched in load order and the legacy plugin loads first, it keeps
-serving attribution and media while present. This plugin's own implementations
-take over when the legacy plugin is removed.
+## Subreddit and user feeds
 
-## Subreddit and user feeds (beta)
-
-Turn on **fetch subreddit and user feeds (beta)** in the admin plugins page and
-set a session below. Both are required: with the flag off or no session, feeds
-keep the old `.rss` behavior. The beta path reads each feed's `/new` listing:
+The plugin reads each feed's `/new` listing:
 
 ```
 https://www.reddit.com/r/golang/.rss
 https://www.reddit.com/user/someone/submitted.rss
 ```
 
-The stored feed URL can stay in its old `.rss` shape. The plugin maps it to
-`old.reddit.com/r/<sub>/new/` or `old.reddit.com/user/<name>/submitted/`, so the
-feed keeps its identity and items across the switch.
+Existing `.rss` URLs are still accepted and canonicalized to the listing shape,
+so a stored subscription keeps its identity and items. A reddit session is
+required. There is no `.rss` fetch path.
 
-While Reddit still serves `.rss`, a feed falls back to it when the session is
-missing, expired, or refused. That keeps an existing install working while you
-set up the cookie. Once Reddit removes `.rss`, the session is required.
+A deleted or banned community or profile pauses the feed with a reason instead
+of retrying it forever.
 
 ## Add a feed
 
@@ -82,11 +74,11 @@ subreddit listings, sends the `over18=1` cookie. A feed URL that already sets
 
 ## Poll interval
 
-Search requests cost the same reddit account and host as every other reddit
-feed. The plugin declares a **one-hour minimum poll interval**; nanoflux uses the
-larger of that and its own configured minimum, so a search feed is polled at most
-hourly even if the global default is lowered. A rarer search benefits from a
-longer interval in the feed editor.
+Reddit requests cost the same account and host for every feed. The plugin
+declares a **one-hour minimum poll interval**; nanoflux uses the larger of that
+and its own configured minimum, so a feed is polled at most hourly even if the
+global default is lowered. A rarer feed benefits from a longer interval in the
+feed editor.
 
 ## Notes
 
@@ -95,12 +87,9 @@ longer interval in the feed editor.
   their image on the card and in the modal.
 - A post id (`t3_<id>`) is the item identity, so a post found by search, through
   a subreddit feed, or through its author's feed is stored once with shared
-  read/favorite/list state. The beta feed path sets the same cross-feed key
-  directly.
+  read/favorite/list state. The listing path sets the same cross-feed key.
 - Results are ordered newest-first, so the feed gains new matching posts as they
   appear. Avoid very broad queries that match a huge volume of posts; use
   "load older" to page further back.
-- While the legacy reddit plugin is installed, it still classifies cards from
-  reddit preview thumbnails, so link and gallery cards from the beta listing path
-  may render as text cards. This plugin classifies them from the destination once
-  the legacy plugin is removed. Their modal content still opens normally.
+- Card kinds and modal media are resolved from the post's destination, so link
+  and gallery posts classify correctly without reddit's preview thumbnails.

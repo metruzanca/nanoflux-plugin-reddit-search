@@ -4,27 +4,22 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	htmlstd "html"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/mmcdole/gofeed"
 	xhtml "golang.org/x/net/html"
 
 	"github.com/metruzanca/nanoflux/pluginapi"
 )
 
-// feedTarget is a subreddit or user posts feed resolved to the shapes this
-// plugin fetches and falls back to. The beta listing fetch is gated by the
-// fetch_feeds setting in Match.
+// feedTarget is a subreddit or user posts feed resolved to its /new listing.
 type feedTarget struct {
 	kind      string // "r" or "u"
 	name      string // subreddit or username
 	scrapeURL string // old.reddit /new listing
-	rssURL    string // legacy .rss endpoint, used only as a temporary fallback
 	title     string // "r/sub" or "u/name"
 	homeURL   string // human page on www
 }
@@ -61,7 +56,6 @@ func listingTarget(raw string) (feedTarget, bool) {
 			kind:      "r",
 			name:      sub,
 			scrapeURL: scrape.String(),
-			rssURL:    "https://www.reddit.com/r/" + sub + "/.rss",
 			title:     "r/" + sub,
 			homeURL:   home,
 		}, true
@@ -82,7 +76,6 @@ func listingTarget(raw string) (feedTarget, bool) {
 			kind:      "u",
 			name:      name,
 			scrapeURL: scrape.String(),
-			rssURL:    "https://www.reddit.com/user/" + name + "/submitted.rss",
 			title:     "u/" + name,
 			homeURL:   home,
 		}, true
@@ -169,140 +162,149 @@ func trimEmpty(in []string) []string {
 
 // --- listing fetch ---
 
-// fetchListing scrapes a subreddit or user /new listing. When the session is
-// missing, expired or refused, it falls back to the still-live .rss endpoint so
-// an install keeps working while the operator sets up the cookie. A rate limit
-// never falls back: the host must back off the shared reddit host instead.
+// fetchListing scrapes a subreddit or user /new listing. There is no .rss
+// fallback: the listing is the only fetch path, so a missing or expired session
+// is an error the feed card surfaces until the operator fixes it.
 func (p *Plugin) fetchListing(ctx context.Context, target feedTarget, h pluginapi.Host) (pluginapi.Result, error) {
 	cfg := p.loadConfig()
-	var scrapeErr error
-
-	if cfg.Complete() {
-		cookie, err := p.cookie(ctx)
-		if err != nil {
-			scrapeErr = err
-		} else {
-			if cfg.IncludeNSFW {
-				cookie += "; over18=1"
-			}
-			endpoint := target.scrapeURL
-			if cfg.IncludeNSFW && target.kind == "u" {
-				endpoint = addQueryParam(endpoint, "include_over_18", "on")
-			}
-			body, err := p.getWith(ctx, endpoint, cookie, h)
-			switch {
-			case err == nil:
-				if isLoginWall(body) || !isListingPage(body) {
-					p.clearSession()
-					scrapeErr = errors.New("reddit returned a login or block page: the session is missing or expired")
-					break
-				}
-				items := parseListing(body)
-				if len(items) == 0 {
-					h.Logf("reddit listing %s parsed no posts", target.scrapeURL)
-				}
-				return pluginapi.Result{
-					Feed:        pluginapi.Feed{Title: target.title, HomeURL: target.homeURL},
-					Items:       items,
-					NextPageURL: listingNextPage(body),
-				}, nil
-			case isRateLimitError(err):
-				return pluginapi.Result{}, err
-			case isAuthError(err):
-				scrapeErr = err
-			default:
-				return pluginapi.Result{}, err
-			}
-		}
-	}
-
-	res, rssErr := p.fetchRSS(ctx, target, h)
-	if rssErr == nil {
-		if scrapeErr != nil {
-			h.Logf("reddit feed scrape failed, used .rss fallback: %v", scrapeErr)
-		}
-		return res, nil
-	}
-	if scrapeErr != nil {
-		return pluginapi.Result{}, fmt.Errorf("reddit feed scrape failed (%v); .rss fallback failed: %w", scrapeErr, rssErr)
-	}
 	if !cfg.Complete() {
-		return pluginapi.Result{}, fmt.Errorf("reddit feed is not configured: set a reddit_session cookie in the admin plugins page; .rss fallback failed: %w", rssErr)
+		return pluginapi.Result{}, errors.New("reddit is not configured: set a reddit_session cookie, or a username and password, in the admin plugins page")
 	}
-	return pluginapi.Result{}, rssErr
-}
+	cookie, err := p.cookie(ctx)
+	if err != nil {
+		return pluginapi.Result{}, err
+	}
+	if cfg.IncludeNSFW {
+		cookie += "; over18=1"
+	}
+	endpoint := target.scrapeURL
+	if cfg.IncludeNSFW && target.kind == "u" {
+		endpoint = addQueryParam(endpoint, "include_over_18", "on")
+	}
 
-// fetchRSS reads the legacy .rss endpoint as a temporary bridge. It does not
-// send the session cookie: .rss is public, and an expired cookie should not
-// make the fallback fail too.
-func (p *Plugin) fetchRSS(ctx context.Context, target feedTarget, h pluginapi.Host) (pluginapi.Result, error) {
-	resp, err := h.Do(ctx, pluginapi.HTTPRequest{
-		Method: http.MethodGet,
-		URL:    target.rssURL,
-		Headers: map[string]string{
-			"Accept": "application/atom+xml, application/rss+xml, application/xml, text/xml, */*",
-		},
-	})
+	resp, err := p.getPage(ctx, endpoint, cookie, h)
 	if err != nil {
 		return pluginapi.Result{}, err
 	}
-	if resp.RateLimited {
-		return pluginapi.Result{}, &pluginapi.RateLimit{URL: target.rssURL, Status: resp.Status, RetryAfter: resp.RetryAfter}
+	switch {
+	case resp.Status == http.StatusUnauthorized || resp.Status == http.StatusForbidden:
+		p.clearSession()
+		return pluginapi.Result{}, &pluginapi.StatusError{Code: resp.Status, URL: endpoint}
+	case resp.Status == http.StatusNotFound || resp.Status == http.StatusGone:
+		if pe, ok := permanentFailure(target, resp.Status, resp.Body); ok {
+			return pluginapi.Result{}, pe
+		}
+		return pluginapi.Result{}, &pluginapi.StatusError{Code: resp.Status, URL: endpoint}
+	case resp.Status >= 400:
+		return pluginapi.Result{}, &pluginapi.StatusError{Code: resp.Status, URL: endpoint}
 	}
-	if resp.Status >= 400 {
-		return pluginapi.Result{}, &pluginapi.StatusError{Code: resp.Status, URL: target.rssURL}
+	if isLoginWall(resp.Body) || !isListingPage(resp.Body) {
+		p.clearSession()
+		return pluginapi.Result{}, errors.New("reddit returned a login or block page: the session is missing or expired")
 	}
-	items, err := parseRSS(resp.Body, target)
-	if err != nil {
-		return pluginapi.Result{}, err
+	items := parseListing(resp.Body)
+	if len(items) == 0 {
+		h.Logf("reddit listing %s parsed no posts", target.scrapeURL)
 	}
 	return pluginapi.Result{
-		Feed:  pluginapi.Feed{Title: target.title, HomeURL: target.homeURL},
-		Items: items,
+		Feed:        pluginapi.Feed{Title: target.title, HomeURL: target.homeURL},
+		Items:       items,
+		NextPageURL: listingNextPage(resp.Body),
 	}, nil
 }
 
-// parseRSS maps the legacy Atom feed into the same item shape the listing
-// scraper produces: a t3_ identity, a shared key, and r//u/ categories. It is
-// deliberately best-effort; the fallback exists only until Nov 13.
-func parseRSS(body []byte, target feedTarget) ([]pluginapi.Item, error) {
-	parsed, err := gofeed.NewParser().Parse(bytes.NewReader(body))
+// getPage performs one host-mediated request and returns the full response so
+// the caller can inspect an error body. A rate-limited host becomes a typed
+// RateLimit, as it does for search.
+func (p *Plugin) getPage(ctx context.Context, endpoint, cookie string, h pluginapi.Host) (pluginapi.HTTPResponse, error) {
+	resp, err := h.Do(ctx, pluginapi.HTTPRequest{
+		Method: http.MethodGet,
+		URL:    endpoint,
+		Headers: map[string]string{
+			"Cookie": cookie,
+			"Accept": "text/html,application/xhtml+xml",
+		},
+	})
 	if err != nil {
-		return nil, err
+		return pluginapi.HTTPResponse{}, err
 	}
-	out := make([]pluginapi.Item, 0, len(parsed.Items))
-	for _, it := range parsed.Items {
-		if !strings.HasPrefix(it.GUID, "t3_") {
-			continue
-		}
-		item := pluginapi.Item{
-			GUID:        it.GUID,
-			Identity:    it.GUID,
-			SharedKey:   "reddit:" + it.GUID,
-			Title:       it.Title,
-			Link:        it.Link,
-			Summary:     nonEmpty(it.Content, it.Description),
-			PublishedAt: rssPublishedAt(it),
-		}
-		if target.kind == "r" {
-			item.Categories = append(item.Categories, "r/"+target.name)
-		} else {
-			item.Categories = append(item.Categories, "u/"+target.name)
-			for _, c := range it.Categories {
-				if sub := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(c)), "r/"); sub != "" {
-					item.Categories = append(item.Categories, "r/"+sub)
-				}
+	if resp.RateLimited {
+		return resp, &pluginapi.RateLimit{URL: endpoint, Status: resp.Status, RetryAfter: resp.RetryAfter}
+	}
+	return resp, nil
+}
+
+// permanentFailure recognizes a community or profile that reddit says is
+// banned, deleted or suspended. A generic 404 stays transient, matching the
+// legacy plugin: an ordinary missing page or a typo is not a reason to pause.
+func permanentFailure(target feedTarget, status int, body []byte) (*pluginapi.PermanentError, bool) {
+	if status != http.StatusNotFound && status != http.StatusGone {
+		return nil, false
+	}
+	title := strings.ToLower(pageTitle(body))
+	text := strings.ToLower(string(body))
+	for _, state := range []string{"banned", "deleted", "suspended"} {
+		if strings.HasSuffix(title, ": "+state) || mentionState(text, state, target.kind) {
+			kind := "feed"
+			switch target.kind {
+			case "r":
+				kind = "community"
+			case "u":
+				kind = "profile"
 			}
+			return &pluginapi.PermanentError{
+				Code:   status,
+				Reason: "reddit " + kind + " was " + state,
+			}, true
 		}
-		if author := rssAuthorName(it); author != "" {
-			item.Categories = append(item.Categories, "u/"+author)
-		}
-		if img := rssImage(it); img != "" {
-			item.ImageURL = img
-		}
-		out = append(out, item)
 	}
-	return out, nil
+	return nil, false
+}
+
+// mentionState matches the body phrases reddit uses for a gone community or
+// profile. It avoids a bare "banned" check: reddit error pages mention the word
+// in unrelated navigation text. The phrase set is scoped to the feed kind so a
+// user 404 cannot pause because some community link says it was banned.
+func mentionState(text, state, kind string) bool {
+	switch kind {
+	case "r":
+		switch state {
+		case "banned":
+			return strings.Contains(text, "community has been banned") ||
+				strings.Contains(text, "this community has been banned")
+		case "deleted":
+			return strings.Contains(text, "community has been deleted")
+		case "suspended":
+			return strings.Contains(text, "community has been suspended")
+		}
+	case "u":
+		switch state {
+		case "banned":
+			return strings.Contains(text, "user has been banned") ||
+				strings.Contains(text, "account has been banned")
+		case "deleted":
+			return strings.Contains(text, "user has been deleted") ||
+				strings.Contains(text, "account has been deleted")
+		case "suspended":
+			return strings.Contains(text, "user has been suspended") ||
+				strings.Contains(text, "account has been suspended")
+		}
+	}
+	return false
+}
+
+// pageTitle returns a page's <title> text, or "".
+func pageTitle(body []byte) string {
+	doc, err := xhtml.Parse(bytes.NewReader(body))
+	if err != nil {
+		return ""
+	}
+	if t := firstDescendant(doc, func(n *xhtml.Node) bool {
+		return n.Type == xhtml.ElementNode && n.Data == "title"
+	}); t != nil {
+		return cleanText(nodeText(t))
+	}
+	return ""
 }
 
 // --- listing parsing ---
@@ -562,59 +564,4 @@ func addQueryParam(raw, key, val string) string {
 		u.RawQuery = q.Encode()
 	}
 	return u.String()
-}
-
-func isRateLimitError(err error) bool {
-	var rl *pluginapi.RateLimit
-	return errors.As(err, &rl)
-}
-
-func isAuthError(err error) bool {
-	var se *pluginapi.StatusError
-	if !errors.As(err, &se) {
-		return false
-	}
-	return se.Code == http.StatusUnauthorized || se.Code == http.StatusForbidden
-}
-
-func rssPublishedAt(it *gofeed.Item) string {
-	t := it.PublishedParsed
-	if t == nil {
-		t = it.UpdatedParsed
-	}
-	if t == nil {
-		return ""
-	}
-	return t.UTC().Format(hostTimeFormat)
-}
-
-func rssAuthorName(it *gofeed.Item) string {
-	if it.Author == nil {
-		return ""
-	}
-	name := strings.TrimSpace(it.Author.Name)
-	name = strings.TrimPrefix(name, "/u/")
-	name = strings.TrimPrefix(name, "u/")
-	return name
-}
-
-func rssImage(it *gofeed.Item) string {
-	if it.Image != nil && it.Image.URL != "" {
-		return it.Image.URL
-	}
-	// Reddit puts the preview thumbnail in media:thumbnail, which gofeed keeps
-	// in the generic extension map rather than Item.Image.
-	if media, ok := it.Extensions["media"]; ok {
-		for _, e := range media["thumbnail"] {
-			if u := strings.TrimSpace(e.Attrs["url"]); u != "" {
-				return u
-			}
-		}
-	}
-	for _, e := range it.Enclosures {
-		if e != nil && strings.HasPrefix(strings.ToLower(e.Type), "image/") {
-			return e.URL
-		}
-	}
-	return ""
 }

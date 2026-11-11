@@ -2,11 +2,11 @@
 // gRPC so nanoflux can load it as an external plugin. Reddit's pages have no
 // feed and require a logged-in session, so this plugin logs in with the
 // configured account (or a pasted session cookie) and scrapes old.reddit.com
-// search results and, as a beta path, subreddit and user /new listings.
+// search results and subreddit and user /new listings.
 //
-// The built-in reddit plugin remains installed during the beta for its
-// attribution, dedupe and media capabilities. The beta feed path is opt-in
-// because it replaces the .rss endpoints Reddit is retiring.
+// The plugin is self-contained. It also carries reddit URL policy, discovery,
+// attribution, cross-feed identity, card kinds and modal media handling, so it
+// fully replaces the legacy reddit plugin.
 //
 // Build it and drop the binary into the host's plugins directory
 // (NF_PLUGINS_DIR, ./plugins by default):

@@ -3,11 +3,11 @@
 // login-gated, so this plugin reads old.reddit.com's HTML with a logged-in
 // session and turns the results into a feed.
 //
-// It also serves subreddit and user posts feeds as a beta path, gated by the
-// fetch_feeds setting, while the built-in reddit plugin remains installed for
-// its attribution, dedupe and media capabilities. Reddit retires the .rss
-// endpoints in November 2026, so the beta path reads the /new listing and keeps
-// the stored .rss URL as the feed identity.
+// It also serves subreddit and user posts feeds by reading the /new listing.
+// Reddit retires the .rss endpoints in November 2026, so the listing is the
+// only fetch path. The plugin is self-contained: it also carries reddit URL
+// policy, discovery, cross-feed identity, attribution, card kinds and modal
+// media handling, so it fully replaces the legacy reddit plugin.
 //
 // The plugin also owns the search feed's URL shape (canonicalization), so a
 // pasted URL is normalized to old.reddit.com with newest-first/all-time sorting
@@ -92,9 +92,8 @@ func (*Plugin) Meta() pluginapi.Meta {
 		UserAgent:  userAgent,
 		RawNetwork: true,
 		Summary:    "reddit: reads subreddits, users, and searches with your own logged-in session",
-		// A search-page scrape is even tighter than reddit's public .rss
-		// endpoints, and every search feed shares the same host. The host uses
-		// the larger of this and its configured minimum.
+		// Reddit's HTML pages share one tight request budget per account and
+		// host. The host uses the larger of this and its configured minimum.
 		MinPollInterval: time.Hour,
 	}
 }
@@ -102,11 +101,9 @@ func (*Plugin) Meta() pluginapi.Meta {
 // Docs returns this plugin's Markdown documentation.
 func (*Plugin) Docs() string { return readme }
 
-// Match handles discovery, fetch, URL rules and docs for reddit search URLs,
-// plus the beta fetch path for subreddit and user posts feeds. The feed path is
-// behind the fetch_feeds setting so an existing install keeps the generic .rss
-// fetch until the operator opts in.
-func (p *Plugin) Match(u *url.URL, cap pluginapi.Capability) bool {
+// Match handles fetch, URL rules, discovery and the reddit view-time
+// capabilities for reddit search, subreddit and user URLs.
+func (*Plugin) Match(u *url.URL, cap pluginapi.Capability) bool {
 	if u == nil {
 		return false
 	}
@@ -130,9 +127,6 @@ func (p *Plugin) Match(u *url.URL, cap pluginapi.Capability) bool {
 		if canonicalSearchURL(u.String()) != "" {
 			return true
 		}
-		if !p.feedFetchReady() {
-			return false
-		}
 		_, ok := listingTarget(u.String())
 		return ok
 	default:
@@ -140,20 +134,10 @@ func (p *Plugin) Match(u *url.URL, cap pluginapi.Capability) bool {
 	}
 }
 
-// feedFetchReady reports whether the beta subreddit/user feed fetch can run:
-// the operator turned it on and a session is configured. With either missing,
-// the feed stays on the generic .rss fetch, so turning the flag on without a
-// cookie does not change existing behavior.
-func (p *Plugin) feedFetchReady() bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.cfg.FetchFeeds && p.cfg.Complete()
-}
-
 // Discover offers a derived feed for a reddit search, subreddit or user page.
 // The candidate is Derived: the feed URL follows from the page URL alone, so
 // the host never fetches the page to validate it.
-func (p *Plugin) Discover(_ context.Context, pageURL string, _ pluginapi.Host) ([]pluginapi.Candidate, error) {
+func (*Plugin) Discover(_ context.Context, pageURL string, _ pluginapi.Host) ([]pluginapi.Candidate, error) {
 	if canonical := canonicalSearchURL(pageURL); canonical != "" {
 		return []pluginapi.Candidate{{
 			FeedURL: canonical,
@@ -163,7 +147,7 @@ func (p *Plugin) Discover(_ context.Context, pageURL string, _ pluginapi.Host) (
 		}}, nil
 	}
 	target, ok := listingTarget(pageURL)
-	if !ok || !p.feedFetchReady() {
+	if !ok {
 		return nil, pluginapi.ErrUnsupportedCapability
 	}
 	author := target.name
@@ -184,11 +168,11 @@ func (p *Plugin) Discover(_ context.Context, pageURL string, _ pluginapi.Host) (
 // folded into a subreddit: query term. A subreddit or user posts URL is
 // normalized to its /new listing. It is idempotent and returns other URLs
 // unchanged.
-func (p *Plugin) CanonicalizeFeedURL(raw string) string {
+func (*Plugin) CanonicalizeFeedURL(raw string) string {
 	if c := canonicalSearchURL(raw); c != "" {
 		return c
 	}
-	if target, ok := listingTarget(raw); ok && p.feedFetchReady() {
+	if target, ok := listingTarget(raw); ok {
 		return target.scrapeURL
 	}
 	return raw
@@ -211,9 +195,8 @@ func (*Plugin) FeedToken(feedURL string) string {
 	return "u/" + strings.ToLower(target.name)
 }
 
-// Fetch dispatches on the URL shape: a search page is scraped as before, and a
-// subreddit/user posts feed uses the beta /new listing scraper with a temporary
-// .rss fallback.
+// Fetch dispatches on the URL shape: a search page is scraped from the search
+// results, and a subreddit/user posts feed from its /new listing.
 func (p *Plugin) Fetch(ctx context.Context, req pluginapi.FetchRequest, h pluginapi.Host) (pluginapi.Result, error) {
 	if canonical := canonicalSearchURL(req.URL); canonical != "" {
 		return p.fetchSearch(ctx, canonical, h)
@@ -230,7 +213,7 @@ func (p *Plugin) Fetch(ctx context.Context, req pluginapi.FetchRequest, h plugin
 func (p *Plugin) fetchSearch(ctx context.Context, canonical string, h pluginapi.Host) (pluginapi.Result, error) {
 	cfg := p.loadConfig()
 	if !cfg.Complete() {
-		return pluginapi.Result{}, errors.New("reddit search is not configured: set a reddit_session cookie, or a username and password, in the admin plugins page")
+		return pluginapi.Result{}, errors.New("reddit is not configured: set a reddit_session cookie, or a username and password, in the admin plugins page")
 	}
 
 	body, err := p.get(ctx, applyNSFW(canonical, cfg), h)
@@ -290,7 +273,7 @@ func (p *Plugin) cookie(ctx context.Context) (string, error) {
 		return session, nil
 	}
 	if !cfg.Complete() {
-		return "", errors.New("reddit search is not configured")
+		return "", errors.New("reddit is not configured")
 	}
 	session, err := p.login(ctx, cfg)
 	if err != nil {
@@ -352,23 +335,14 @@ func (p *Plugin) get(ctx context.Context, endpoint string, h pluginapi.Host) ([]
 	return p.getWith(ctx, endpoint, cookie, h)
 }
 
-// getWith performs one host-mediated request with an explicit Cookie header. A
-// rate-limited host comes back as a typed RateLimit so the feed is parked; a
-// login wall clears the cached session so the next poll logs in again.
+// getWith performs one host-mediated request with an explicit Cookie header and
+// returns the body. A rate-limited host comes back as a typed RateLimit so the
+// feed is parked; a login wall clears the cached session so the next poll logs
+// in again.
 func (p *Plugin) getWith(ctx context.Context, endpoint, cookie string, h pluginapi.Host) ([]byte, error) {
-	resp, err := h.Do(ctx, pluginapi.HTTPRequest{
-		Method: http.MethodGet,
-		URL:    endpoint,
-		Headers: map[string]string{
-			"Cookie": cookie,
-			"Accept": "text/html,application/xhtml+xml",
-		},
-	})
+	resp, err := p.getPage(ctx, endpoint, cookie, h)
 	if err != nil {
 		return nil, err
-	}
-	if resp.RateLimited {
-		return nil, &pluginapi.RateLimit{URL: endpoint, Status: resp.Status, RetryAfter: resp.RetryAfter}
 	}
 	if resp.Status == http.StatusUnauthorized || resp.Status == http.StatusForbidden {
 		p.clearSession()

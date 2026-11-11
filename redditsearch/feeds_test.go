@@ -34,19 +34,12 @@ const listingFixture = `<!doctype html><html><body>
 <span class="next-button"><a href="/r/golang/new/?count=25&amp;after=t3_abc123">next</a></span>
 </body></html>`
 
-const rssFixture = `<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
-  <title>r/golang</title>
-  <entry>
-    <id>t3_rss1</id>
-    <title>RSS Post</title>
-    <link href="https://www.reddit.com/r/golang/comments/rss1/post/" />
-    <published>2023-11-14T22:13:20+00:00</published>
-    <author><name>/u/alice</name></author>
-    <category term="golang" label="r/golang"/>
-    <content type="html">&lt;p&gt;hello&lt;/p&gt;</content>
-  </entry>
-</feed>`
+const (
+	bannedListing = `<html><head><title>programmerhumour: banned</title></head><body><p>This community has been banned</p></body></html>`
+	deletedUser   = `<html><head><title>someuser: deleted</title></head><body></body></html>`
+	suspendedUser = `<html><head><title>someuser: suspended</title></head><body></body></html>`
+	notFoundPage  = `<html><head><title>reddit.com: page not found</title></head><body><h1>page not found</h1></body></html>`
+)
 
 func TestListingTarget(t *testing.T) {
 	cases := []struct {
@@ -55,22 +48,21 @@ func TestListingTarget(t *testing.T) {
 		kind   string
 		name   string
 		scrape string
-		rss    string
 		title  string
 		home   string
 	}{
-		{"https://www.reddit.com/r/golang/.rss", true, "r", "golang", "https://old.reddit.com/r/golang/new/", "https://www.reddit.com/r/golang/.rss", "r/golang", "https://www.reddit.com/r/golang"},
-		{"https://www.reddit.com/r/golang.rss", true, "r", "golang", "https://old.reddit.com/r/golang/new/", "https://www.reddit.com/r/golang/.rss", "r/golang", "https://www.reddit.com/r/golang"},
-		{"https://old.reddit.com/r/golang/new/", true, "r", "golang", "https://old.reddit.com/r/golang/new/", "https://www.reddit.com/r/golang/.rss", "r/golang", "https://www.reddit.com/r/golang"},
-		{"https://old.reddit.com/r/golang/new/.rss", true, "r", "golang", "https://old.reddit.com/r/golang/new/", "https://www.reddit.com/r/golang/.rss", "r/golang", "https://www.reddit.com/r/golang"},
-		{"https://www.reddit.com/r/golang/top/.rss", true, "r", "golang", "https://old.reddit.com/r/golang/new/", "https://www.reddit.com/r/golang/.rss", "r/golang", "https://www.reddit.com/r/golang"},
-		{"https://old.reddit.com/r/golang/new/?count=25&after=t3_x", true, "r", "golang", "https://old.reddit.com/r/golang/new/?after=t3_x&count=25", "https://www.reddit.com/r/golang/.rss", "r/golang", "https://www.reddit.com/r/golang"},
-		{"https://www.reddit.com/user/sam.rss", true, "u", "sam", "https://old.reddit.com/user/sam/submitted/?sort=new", "https://www.reddit.com/user/sam/submitted.rss", "u/sam", "https://www.reddit.com/user/sam"},
-		{"https://www.reddit.com/u/sam/submitted.rss", true, "u", "sam", "https://old.reddit.com/user/sam/submitted/?sort=new", "https://www.reddit.com/user/sam/submitted.rss", "u/sam", "https://www.reddit.com/user/sam"},
-		{"https://old.reddit.com/user/sam/submitted/?sort=new", true, "u", "sam", "https://old.reddit.com/user/sam/submitted/?sort=new", "https://www.reddit.com/user/sam/submitted.rss", "u/sam", "https://www.reddit.com/user/sam"},
-		{"https://www.reddit.com/r/golang/comments/1abc/x/", false, "", "", "", "", "", ""},
-		{"https://www.reddit.com/r/golang/search?q=x", false, "", "", "", "", "", ""},
-		{"https://example.com/r/golang/.rss", false, "", "", "", "", "", ""},
+		{"https://www.reddit.com/r/golang/.rss", true, "r", "golang", "https://old.reddit.com/r/golang/new/", "r/golang", "https://www.reddit.com/r/golang"},
+		{"https://www.reddit.com/r/golang.rss", true, "r", "golang", "https://old.reddit.com/r/golang/new/", "r/golang", "https://www.reddit.com/r/golang"},
+		{"https://old.reddit.com/r/golang/new/", true, "r", "golang", "https://old.reddit.com/r/golang/new/", "r/golang", "https://www.reddit.com/r/golang"},
+		{"https://old.reddit.com/r/golang/new/.rss", true, "r", "golang", "https://old.reddit.com/r/golang/new/", "r/golang", "https://www.reddit.com/r/golang"},
+		{"https://www.reddit.com/r/golang/top/.rss", true, "r", "golang", "https://old.reddit.com/r/golang/new/", "r/golang", "https://www.reddit.com/r/golang"},
+		{"https://old.reddit.com/r/golang/new/?count=25&after=t3_x", true, "r", "golang", "https://old.reddit.com/r/golang/new/?after=t3_x&count=25", "r/golang", "https://www.reddit.com/r/golang"},
+		{"https://www.reddit.com/user/sam.rss", true, "u", "sam", "https://old.reddit.com/user/sam/submitted/?sort=new", "u/sam", "https://www.reddit.com/user/sam"},
+		{"https://www.reddit.com/u/sam/submitted.rss", true, "u", "sam", "https://old.reddit.com/user/sam/submitted/?sort=new", "u/sam", "https://www.reddit.com/user/sam"},
+		{"https://old.reddit.com/user/sam/submitted/?sort=new", true, "u", "sam", "https://old.reddit.com/user/sam/submitted/?sort=new", "u/sam", "https://www.reddit.com/user/sam"},
+		{"https://www.reddit.com/r/golang/comments/1abc/x/", false, "", "", "", "", ""},
+		{"https://www.reddit.com/r/golang/search?q=x", false, "", "", "", "", ""},
+		{"https://example.com/r/golang/.rss", false, "", "", "", "", ""},
 	}
 	for _, tc := range cases {
 		got, ok := listingTarget(tc.in)
@@ -81,7 +73,7 @@ func TestListingTarget(t *testing.T) {
 		if !ok {
 			continue
 		}
-		if got.kind != tc.kind || got.name != tc.name || got.scrapeURL != tc.scrape || got.rssURL != tc.rss || got.title != tc.title || got.homeURL != tc.home {
+		if got.kind != tc.kind || got.name != tc.name || got.scrapeURL != tc.scrape || got.title != tc.title || got.homeURL != tc.home {
 			t.Errorf("listingTarget(%q) = %+v", tc.in, got)
 		}
 	}
@@ -140,21 +132,11 @@ func TestListingNextPage(t *testing.T) {
 	}
 }
 
-func TestMatchFeedFetchFlag(t *testing.T) {
+func TestMatchFeedFetch(t *testing.T) {
 	p := &Plugin{}
-	feed, _ := url.Parse("https://www.reddit.com/r/golang/.rss")
-	if p.Match(feed, pluginapi.CapFetch) {
-		t.Error("feed fetch should be off by default")
-	}
-
-	p.Configure(map[string]string{"fetch_feeds": "1"})
-	if p.Match(feed, pluginapi.CapFetch) {
-		t.Error("feed fetch should wait for a session")
-	}
-
-	p.Configure(map[string]string{"fetch_feeds": "1", "session": "abc"})
+	feed := mustURL(t, "https://www.reddit.com/r/golang/.rss")
 	if !p.Match(feed, pluginapi.CapFetch) {
-		t.Error("feed fetch should match when enabled and configured")
+		t.Error("feed fetch should always match")
 	}
 	if !p.Match(feed, pluginapi.CapDiscover) {
 		t.Error("feed discovery should be available in this plugin")
@@ -163,13 +145,13 @@ func TestMatchFeedFetchFlag(t *testing.T) {
 		t.Error("post permalink should not match feed fetch")
 	}
 	if !p.Match(mustURL(t, "https://old.reddit.com/search?q=x"), pluginapi.CapFetch) {
-		t.Error("search should still match regardless of the flag")
+		t.Error("search should match fetch")
 	}
 }
 
 func TestFetchListing(t *testing.T) {
 	p := &Plugin{}
-	p.Configure(map[string]string{"session": "abc", "fetch_feeds": "1", "include_nsfw": "1"})
+	p.Configure(map[string]string{"session": "abc", "include_nsfw": "1"})
 	h := &fakeHost{do: func(context.Context, pluginapi.HTTPRequest) (pluginapi.HTTPResponse, error) {
 		return pluginapi.HTTPResponse{Status: 200, Body: []byte(listingFixture)}, nil
 	}}
@@ -194,30 +176,25 @@ func TestFetchListing(t *testing.T) {
 	}
 }
 
-func TestFetchListingFallsBackToRSS(t *testing.T) {
+func TestFetchListingUnconfigured(t *testing.T) {
 	p := &Plugin{}
-	p.Configure(map[string]string{"fetch_feeds": "1"})
+	calls := 0
 	h := &fakeHost{do: func(context.Context, pluginapi.HTTPRequest) (pluginapi.HTTPResponse, error) {
-		return pluginapi.HTTPResponse{Status: 200, Body: []byte(rssFixture)}, nil
+		calls++
+		return pluginapi.HTTPResponse{Status: 200}, nil
 	}}
-	res, err := p.Fetch(context.Background(), pluginapi.FetchRequest{URL: "https://www.reddit.com/r/golang/.rss"}, h)
-	if err != nil {
-		t.Fatalf("Fetch: %v", err)
+	_, err := p.Fetch(context.Background(), pluginapi.FetchRequest{URL: "https://www.reddit.com/r/golang/.rss"}, h)
+	if err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("err = %v, want a configuration error", err)
 	}
-	if len(res.Items) != 1 || res.Items[0].GUID != "t3_rss1" {
-		t.Fatalf("items = %+v", res.Items)
-	}
-	if res.Items[0].SharedKey != "reddit:t3_rss1" {
-		t.Errorf("SharedKey = %q", res.Items[0].SharedKey)
-	}
-	if h.lastReq.URL != "https://www.reddit.com/r/golang/.rss" {
-		t.Errorf("fallback URL = %q", h.lastReq.URL)
+	if calls != 0 {
+		t.Fatalf("calls = %d, want 0", calls)
 	}
 }
 
 func TestFetchListingRateLimited(t *testing.T) {
 	p := &Plugin{}
-	p.Configure(map[string]string{"session": "abc", "fetch_feeds": "1"})
+	p.Configure(map[string]string{"session": "abc"})
 	calls := 0
 	h := &fakeHost{do: func(context.Context, pluginapi.HTTPRequest) (pluginapi.HTTPResponse, error) {
 		calls++
@@ -229,78 +206,110 @@ func TestFetchListingRateLimited(t *testing.T) {
 		t.Fatalf("err = %v, want *RateLimit", err)
 	}
 	if calls != 1 {
-		t.Fatalf("calls = %d, want 1 (no fallback on rate limit)", calls)
+		t.Fatalf("calls = %d, want 1", calls)
 	}
 }
 
-func TestFetchListingLoginWallFallsBack(t *testing.T) {
+func TestFetchListingLoginWallErrors(t *testing.T) {
 	p := &Plugin{}
-	p.Configure(map[string]string{"session": "expired", "fetch_feeds": "1"})
+	p.Configure(map[string]string{"session": "expired"})
 	calls := 0
-	h := &fakeHost{do: func(_ context.Context, req pluginapi.HTTPRequest) (pluginapi.HTTPResponse, error) {
+	h := &fakeHost{do: func(context.Context, pluginapi.HTTPRequest) (pluginapi.HTTPResponse, error) {
 		calls++
-		if strings.Contains(req.URL, "old.reddit.com") {
-			return pluginapi.HTTPResponse{Status: 200, Body: []byte(`<html><div id="login-form">login</div></html>`)}, nil
-		}
-		return pluginapi.HTTPResponse{Status: 200, Body: []byte(rssFixture)}, nil
+		return pluginapi.HTTPResponse{Status: 200, Body: []byte(`<html><div id="login-form">login</div></html>`)}, nil
 	}}
-	res, err := p.Fetch(context.Background(), pluginapi.FetchRequest{URL: "https://www.reddit.com/r/golang/.rss"}, h)
-	if err != nil {
-		t.Fatalf("Fetch: %v", err)
+	_, err := p.Fetch(context.Background(), pluginapi.FetchRequest{URL: "https://www.reddit.com/r/golang/.rss"}, h)
+	if err == nil || !strings.Contains(err.Error(), "login or block page") {
+		t.Fatalf("err = %v, want a login-wall error", err)
 	}
-	if calls != 2 {
-		t.Fatalf("calls = %d, want 2", calls)
-	}
-	if len(res.Items) != 1 || res.Items[0].GUID != "t3_rss1" {
-		t.Fatalf("items = %+v", res.Items)
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
 	}
 	if p.loadConfig().Session == "" {
 		t.Error("config session should remain; only the cached login session is cleared")
 	}
 }
 
-func TestFetchListingBlockPageFallsBack(t *testing.T) {
+func TestFetchListingBlockPageErrors(t *testing.T) {
 	p := &Plugin{}
-	p.Configure(map[string]string{"session": "abc", "fetch_feeds": "1"})
+	p.Configure(map[string]string{"session": "abc"})
 	calls := 0
-	h := &fakeHost{do: func(_ context.Context, req pluginapi.HTTPRequest) (pluginapi.HTTPResponse, error) {
+	h := &fakeHost{do: func(context.Context, pluginapi.HTTPRequest) (pluginapi.HTTPResponse, error) {
 		calls++
-		if strings.Contains(req.URL, "old.reddit.com") {
-			return pluginapi.HTTPResponse{Status: 200, Body: []byte(`<html><head><title>Blocked</title></head><body>nope</body></html>`)}, nil
-		}
-		return pluginapi.HTTPResponse{Status: 200, Body: []byte(rssFixture)}, nil
+		return pluginapi.HTTPResponse{Status: 200, Body: []byte(`<html><head><title>Blocked</title></head><body>nope</body></html>`)}, nil
 	}}
-	res, err := p.Fetch(context.Background(), pluginapi.FetchRequest{URL: "https://www.reddit.com/r/golang/.rss"}, h)
-	if err != nil {
-		t.Fatalf("Fetch: %v", err)
+	_, err := p.Fetch(context.Background(), pluginapi.FetchRequest{URL: "https://www.reddit.com/r/golang/.rss"}, h)
+	if err == nil || !strings.Contains(err.Error(), "login or block page") {
+		t.Fatalf("err = %v, want a block-page error", err)
 	}
-	if calls != 2 {
-		t.Fatalf("calls = %d, want 2", calls)
-	}
-	if len(res.Items) != 1 || res.Items[0].GUID != "t3_rss1" {
-		t.Fatalf("items = %+v", res.Items)
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
 	}
 }
 
-func TestParseRSSMediaThumbnail(t *testing.T) {
-	const body = `<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
-  <entry>
-    <id>t3_thumb1</id>
-    <title>Thumb</title>
-    <link href="https://www.reddit.com/r/golang/comments/thumb1/post/" />
-    <published>2023-11-14T22:13:20+00:00</published>
-    <author><name>/u/alice</name></author>
-    <category term="golang" label="r/golang"/>
-    <media:thumbnail url="https://external-preview.redd.it/thumb.jpeg" />
-  </entry>
-</feed>`
-	items, err := parseRSS([]byte(body), feedTarget{kind: "r", name: "golang"})
-	if err != nil {
-		t.Fatalf("parseRSS: %v", err)
+func TestPermanentFailure(t *testing.T) {
+	cases := []struct {
+		name   string
+		target feedTarget
+		status int
+		body   string
+		want   string
+		ok     bool
+	}{
+		{"banned community", feedTarget{kind: "r", name: "programmerhumour"}, 404, bannedListing, "reddit community was banned", true},
+		{"deleted community", feedTarget{kind: "r", name: "gone"}, 404, `<html><head><title>gone: deleted</title></head></html>`, "reddit community was deleted", true},
+		{"deleted profile", feedTarget{kind: "u", name: "gone"}, 404, deletedUser, "reddit profile was deleted", true},
+		{"suspended profile", feedTarget{kind: "u", name: "gone"}, 404, suspendedUser, "reddit profile was suspended", true},
+		{"generic 404", feedTarget{kind: "u", name: "typo"}, 404, notFoundPage, "", false},
+		{"generic 404 community", feedTarget{kind: "r", name: "typo"}, 404, notFoundPage, "", false},
+		{"not eligible status", feedTarget{kind: "r", name: "x"}, 500, bannedListing, "", false},
 	}
-	if len(items) != 1 || items[0].ImageURL != "https://external-preview.redd.it/thumb.jpeg" {
-		t.Fatalf("items = %+v", items)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := permanentFailure(tc.target, tc.status, []byte(tc.body))
+			if ok != tc.ok {
+				t.Fatalf("ok = %v, want %v", ok, tc.ok)
+			}
+			if !ok {
+				return
+			}
+			if got.Reason != tc.want || got.Code != tc.status {
+				t.Fatalf("permanent = %+v, want reason %q code %d", got, tc.want, tc.status)
+			}
+		})
+	}
+}
+
+func TestFetchBannedCommunity(t *testing.T) {
+	p := &Plugin{}
+	p.Configure(map[string]string{"session": "abc"})
+	h := &fakeHost{do: func(context.Context, pluginapi.HTTPRequest) (pluginapi.HTTPResponse, error) {
+		return pluginapi.HTTPResponse{Status: 404, Body: []byte(bannedListing)}, nil
+	}}
+	_, err := p.Fetch(context.Background(), pluginapi.FetchRequest{URL: "https://www.reddit.com/r/programmerhumour/.rss"}, h)
+	var pe *pluginapi.PermanentError
+	if !errors.As(err, &pe) {
+		t.Fatalf("err = %v, want *PermanentError", err)
+	}
+	if pe.Reason != "reddit community was banned" || pe.Code != 404 {
+		t.Fatalf("permanent = %+v", pe)
+	}
+}
+
+func TestFetchGenericNotFoundIsTransient(t *testing.T) {
+	p := &Plugin{}
+	p.Configure(map[string]string{"session": "abc"})
+	h := &fakeHost{do: func(context.Context, pluginapi.HTTPRequest) (pluginapi.HTTPResponse, error) {
+		return pluginapi.HTTPResponse{Status: 404, Body: []byte(notFoundPage)}, nil
+	}}
+	_, err := p.Fetch(context.Background(), pluginapi.FetchRequest{URL: "https://www.reddit.com/user/typo/submitted.rss"}, h)
+	var se *pluginapi.StatusError
+	if !errors.As(err, &se) {
+		t.Fatalf("err = %v, want *StatusError", err)
+	}
+	var pe *pluginapi.PermanentError
+	if errors.As(err, &pe) {
+		t.Fatalf("generic 404 should not be permanent: %+v", pe)
 	}
 }
 

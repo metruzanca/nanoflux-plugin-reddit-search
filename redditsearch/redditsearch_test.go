@@ -240,8 +240,8 @@ func TestMatch(t *testing.T) {
 	if got := p.Meta().MinPollInterval; got != time.Hour {
 		t.Errorf("MinPollInterval = %v, want 1h", got)
 	}
-	if p.Match(must("https://old.reddit.com/r/golang"), pluginapi.CapFetch) {
-		t.Error("a subreddit feed is not a search URL")
+	if !p.Match(must("https://old.reddit.com/r/golang"), pluginapi.CapFetch) {
+		t.Error("a subreddit feed should match fetch")
 	}
 	if p.Match(must("https://example.com/search"), pluginapi.CapFetch) {
 		t.Error("non-reddit host should not match")

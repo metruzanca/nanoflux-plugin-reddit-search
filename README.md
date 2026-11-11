@@ -3,8 +3,8 @@
 A [nanoflux](https://github.com/metruzanca/nanoflux)↗ external plugin that reads
 subreddits, user profiles, and searches as feeds, using a logged-in session to
 read `old.reddit.com`'s pages. It also carries reddit attribution, cross-feed
-identity, card kinds, and modal media handling. The legacy `reddit` plugin stays
-installed as a fallback and keeps serving those while present.
+identity, card kinds, and modal media handling, so it replaces the legacy
+`reddit` plugin.
 
 ## Install
 
@@ -23,8 +23,7 @@ Adjust `GOARCH` if your host is not `amd64` (use `arm64` for ARM).
 
 ## Usage
 
-Add a feed with a reddit search URL, or turn on **fetch subreddit and user feeds
-(beta)** to read subreddit and user posts feeds as well:
+Add a feed with a reddit search URL, a subreddit, or a user profile:
 
 ```
 https://old.reddit.com/search?q=author%3ALeftArmOfExodia&sort=new&t=all
@@ -35,7 +34,6 @@ https://www.reddit.com/user/someone/submitted.rss
 
 Then set the account on nanoflux's admin plugins page: paste a `reddit_session`
 cookie (recommended), or a username and password. See the plugin's docs in the
-app for the supported search parameters and the beta feed behavior.
+app for the supported search parameters and feed behavior.
 
-The beta feed path falls back to `.rss` while Reddit still serves it, so an
-existing install keeps working while the session cookie is configured.
+A session is required. There is no `.rss` fetch path.
